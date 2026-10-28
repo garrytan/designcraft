@@ -6799,6 +6799,44 @@ fn anchored_object_wraps_its_own_storys_later_lines() {
     assert!((o.origin.y - top).abs() < 1e-6);
 }
 
+/// Each object's wrap pushes the anchors after it down, so where each object lands depends on the
+/// wraps of all those before it; every object still ends up wrapping the lines it hangs over.
+#[test]
+fn chained_anchored_objects_all_wrap_their_own_storys_lines() {
+    const OBJECTS: usize = 8;
+    let text = [LOREM; 12].join(" ");
+    let (mut d, sid, _) = doc_with(&text, Rect::new(0.0, 0.0, 300.0, 3000.0), ParaAttrs::default());
+    let plain = compose_story(&d, sid, &ComposeOptions::default());
+    let lines = all_lines(&plain);
+    assert!(lines.len() > 2 + 6 * OBJECTS);
+    let left = lines[0].x0;
+    // One object every six lines, each hanging from its anchor's baseline over the lines below;
+    // inserted last first so the earlier offsets still hold.
+    let ats: Vec<usize> = (0..OBJECTS).map(|k| lines[2 + 6 * k].range.start + 3).collect();
+    for &at in ats.iter().rev() {
+        anchor_box(&mut d, sid, at, 0.0, 0.0, true, WrapMode::BoundingBox);
+    }
+    let cs = compose_story(&d, sid, &ComposeOptions::default());
+    assert!(!cs.is_overset());
+    let lines = all_lines(&cs);
+    let anchors: Vec<usize> = d.story(sid).unwrap().text.match_indices(designcraft_doc::OBJECT_MARK).map(|(i, _)| i).collect();
+    let objects = &cs.frames[0].objects;
+    assert_eq!(objects.len(), OBJECTS);
+    for o in objects {
+        let anchor_line = lines.iter().find(|l| l.range.contains(&anchors[o.index])).unwrap();
+        assert!((o.origin.y - anchor_line.baseline).abs() < 1e-6, "object {} at {}, anchor line at {}", o.index, o.origin.y, anchor_line.baseline);
+        let under = lines_in_band(&cs, o.origin.y, o.origin.y + 60.0);
+        assert!(under.len() >= 2);
+        assert!(
+            under.iter().all(|l| l.x0 >= left + 100.0 - 1e-6),
+            "object {} at {}: {:?}",
+            o.index,
+            o.origin.y,
+            under.iter().map(|l| (l.baseline, l.x0)).collect::<Vec<_>>()
+        );
+    }
+}
+
 #[test]
 fn anchored_object_without_wrap_leaves_layout_unchanged() {
     let long = [LOREM; 3].join(" ");
